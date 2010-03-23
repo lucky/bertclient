@@ -19,7 +19,6 @@ module BERT
       @ssl = opts[:ssl] || false 
       @verify_ssl = opts.has_key?(:verify_ssl) ? opts[:verify_ssl] : true
       @socket = {}
-      connect
     end
 
     def call(mod, fun, *args)
@@ -75,7 +74,7 @@ module BERT
     end
 
     def socket
-      @socket[Thread.current]
+      @socket[Thread.current] ||= connect
     end
 
     # Open socket to service, use SSL if necessary
@@ -87,8 +86,7 @@ module BERT
         sock.connect
         sock.post_connection_check(@host) if @verify_ssl
       end
-      @socket[Thread.current] = sock
-      true
+      sock
     end
 
     # Reads a new berp from the socket and returns the decoded object
