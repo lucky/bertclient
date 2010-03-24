@@ -13,4 +13,9 @@ connections, ssl, and it currently exposes BERT-RPC's cast and call.
 
     client.call(:calc, :add, 1, 2)
 
+You can also use blocks to create ephemeral connections:
 
+    BERT::Client.new(opts) do |client|
+      client.call(:auth, :authenticate, user, password)
+      client.call(:calc, :add, 1, 2)
+    end

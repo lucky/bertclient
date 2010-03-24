@@ -13,12 +13,13 @@ module BERT
     class BadHeader < RPCError; end
     class BadData < RPCError; end
 
-    def initialize(opts={})
+    def initialize(opts={}, &block)
       @host = opts[:host] || 'localhost'
       @port = opts[:port] || 9999 
       @ssl = opts[:ssl] || false 
       @verify_ssl = opts.has_key?(:verify_ssl) ? opts[:verify_ssl] : true
       @socket = {}
+      execute(&block) if block_given?
     end
 
     def call(mod, fun, *args)
@@ -87,6 +88,20 @@ module BERT
         sock.post_connection_check(@host) if @verify_ssl
       end
       sock
+    end
+
+    # Close socket and clean it up from the pool
+    def close
+      socket.close
+      @socket.delete(Thread.current)
+      true
+    end
+
+    # Accepts a block, yields the client, closes socket at the end of the block
+    def execute
+      ret = yield self
+      close
+      ret
     end
 
     # Reads a new berp from the socket and returns the decoded object
