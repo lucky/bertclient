@@ -9,7 +9,9 @@ connections, ssl, and it currently exposes BERT-RPC's cast and call.
     client = BERT::Client.new(:host => 'localhost',
                               :port => 9999,
                               :ssl => true,
-                              :verify_ssl => false)
+                              :verify_ssl => false,
+                              :gzip => true,
+                              :gzip_threshold => 2048)
 
     client.call(:calc, :add, 1, 2)
 

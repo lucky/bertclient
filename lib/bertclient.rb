@@ -1,4 +1,5 @@
 require 'openssl'
+require 'zlib'
 require 'bert'
 require 'resolv-replace' # TCPSocket
 
@@ -13,10 +14,14 @@ module BERT
     class BadHeader < RPCError; end
     class BadData < RPCError; end
 
+    GZIP_BERP = t[:info, :encoding, [t[:gzip]]]
+
     def initialize(opts={}, &block)
       @host = opts[:host] || 'localhost'
       @port = opts[:port] || 9999 
-      @ssl = opts[:ssl] || false 
+      @gzip = opts[:gzip] || false
+      @gzip_threshold = opts[:gzip_threshold] || 1024 # bytes
+      @ssl = opts[:ssl] || false
       @verify_ssl = opts.has_key?(:verify_ssl) ? opts[:verify_ssl] : true
       @socket = {}
       execute(&block) if block_given?
@@ -40,7 +45,30 @@ module BERT
     def cast_or_call(cc, mod, fun, *args)
       req = t[cc, mod.to_sym, fun.to_sym, args]
       write_berp(req)
-      read_berp
+      read_response
+    end
+
+    def read_response
+      gzip_encoded = false
+      response = nil
+
+      loop do
+        response = read_berp
+        break unless response[0] == :info
+
+        # For now we only know how to handle gzip encoding info packets
+        if response == GZIP_BERP
+          gzip_encoded = true
+        else
+          raise NotImplementedError, "Only gzip-encoding related info packets are supported in this version of bertclient"
+        end
+      end
+
+      if gzip_encoded and response[0] == :gzip
+        response = BERT.decode(Zlib::Inflate.inflate(response[1]))
+      end
+
+      response
     end
 
     # See bert-rpc.org for error response mechanisms
@@ -112,15 +140,23 @@ module BERT
     end
 
     # Accepts a Ruby object, converts to a berp and sends through the socket
+    # Optionally sends gzip packet:
+    #
+    # -> {info, encoding, gzip}
+    # -> {gzip, GzippedBertEncodedData}
     def write_berp(obj)
-      socket.write(Client.create_berp(obj))
+      data = BERT.encode(obj)
+      if @gzip and data.bytesize > @gzip_threshold
+        socket.write(Client.create_berp(BERT.encode(GZIP_BERP)))
+
+        data = BERT.encode(t[:gzip, Zlib::Deflate.deflate(data)])
+      end
+      socket.write(Client.create_berp(data))
     end
 
-    # Accepts a Ruby object and returns an encoded berp
-    def Client.create_berp(obj)
-      data = BERT.encode(obj)
-      length = [data.bytesize].pack('N')
-      "#{length}#{data}"
+    # Accepts a string and returns a berp
+    def Client.create_berp(data)
+      [[data.bytesize].pack('N'), data].join
     end
   end
 
