@@ -15,12 +15,16 @@ module BERT
     class BadData < RPCError; end
 
     GZIP_BERP = t[:info, :encoding, [t[:gzip]]]
+    ACCEPT_ENCODING_BERP = t[:info, :accept_encoding, [t[:gzip]]]
 
     def initialize(opts={}, &block)
       @host = opts[:host] || 'localhost'
       @port = opts[:port] || 9999 
+
       @gzip = opts[:gzip] || false
       @gzip_threshold = opts[:gzip_threshold] || 1024 # bytes
+      @gzip_accept_sent = false
+
       @ssl = opts[:ssl] || false
       @verify_ssl = opts.has_key?(:verify_ssl) ? opts[:verify_ssl] : true
       @socket = {}
@@ -74,7 +78,7 @@ module BERT
     # See bert-rpc.org for error response mechanisms
     def handle_error(response)
       unless response[0] == :error
-        raise InvalidReponse, "Expected error response, got: #{response.inspect}"
+        raise InvalidResponse, "Expected error response, got: #{response.inspect}"
       end
 
       type, code, klass, detail, backtrace = response[1]
@@ -146,12 +150,21 @@ module BERT
     # -> {gzip, GzippedBertEncodedData}
     def write_berp(obj)
       data = BERT.encode(obj)
-      if @gzip and data.bytesize > @gzip_threshold
-        socket.write(Client.create_berp(BERT.encode(GZIP_BERP)))
+      data = negotiate_gzip(data) if @gzip
+      socket.write(Client.create_berp(data))
+    end
 
+    def negotiate_gzip(data)
+      if not @gzip_accept_sent
+        @gzip_accept_sent = true
+        socket.write(Client.create_berp(BERT.encode(ACCEPT_ENCODING_BERP)))
+      end
+
+      if data.bytesize > @gzip_threshold
+        socket.write(Client.create_berp(BERT.encode(GZIP_BERP)))
         data = BERT.encode(t[:gzip, Zlib::Deflate.deflate(data)])
       end
-      socket.write(Client.create_berp(data))
+      data
     end
 
     # Accepts a string and returns a berp
